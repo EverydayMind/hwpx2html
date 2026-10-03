@@ -107,17 +107,19 @@ pub fn estimated_memory_bytes(unpacked_bytes: u64, image_bytes: u64) -> u64 {
 
 impl Package {
     pub fn open(path: impl AsRef<Path>, limits: &Limits) -> Result<Self> {
-        let path = path.as_ref().to_path_buf();
-        if !path.is_file() {
-            return Err(ConvertError::MissingInput(path));
-        }
-        let metadata = std::fs::metadata(&path)?;
-        if metadata.len() > limits.max_input_bytes {
+        let input = read_input(path.as_ref(), limits)?;
+        Self::from_bytes(path.as_ref().to_path_buf(), input, limits)
+    }
+
+    /// Open an in-memory ZIP-HWPX. `label` is used only in error messages;
+    /// this path never reads a file or contacts the network.
+    pub fn from_bytes(label: PathBuf, input: Vec<u8>, limits: &Limits) -> Result<Self> {
+        let path = label;
+        if input.len() as u64 > limits.max_input_bytes {
             return Err(ConvertError::InputTooLarge {
                 limit: limits.max_input_bytes / MIB,
             });
         }
-        let input = std::fs::read(&path)?;
         if input.len() < 4 || input[..4] != [0x50, 0x4b, 0x03, 0x04] {
             return Err(ConvertError::UnsupportedFormat(path));
         }
@@ -200,6 +202,19 @@ impl Package {
             unpacked_bytes: 0,
         }
     }
+}
+
+/// Keep CLI input validation and error ordering ahead of the byte API.
+pub(crate) fn read_input(path: &Path, limits: &Limits) -> Result<Vec<u8>> {
+    if !path.is_file() {
+        return Err(ConvertError::MissingInput(path.to_path_buf()));
+    }
+    if std::fs::metadata(path)?.len() > limits.max_input_bytes {
+        return Err(ConvertError::InputTooLarge {
+            limit: limits.max_input_bytes / MIB,
+        });
+    }
+    Ok(std::fs::read(path)?)
 }
 
 pub fn normalize_entry_name(raw: &str) -> Result<String> {

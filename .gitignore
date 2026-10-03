@@ -5,10 +5,13 @@
 /docs/
 /tests/
 /examples/
-/scripts/
+/scripts/*
+!/scripts/build_publisher.py
+/web/target/
 /샘플/
 /scratch/
 *.rs.bk
 *.html
+!/web/publisher.html
 *.html.assets/
 __pycache__/

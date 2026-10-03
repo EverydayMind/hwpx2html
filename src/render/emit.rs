@@ -482,6 +482,18 @@ fn page_frames(layout: &LayoutDocument) -> (Vec<PageFrame>, i64) {
     (frames, screen)
 }
 
+/// Screen flow height, in CSS px, with the existing border and both gaps.
+/// Shares the emitter's snapped lengths; does not change output CSS.
+pub(crate) fn screen_extents(layout: &LayoutDocument) -> (f64, f64) {
+    let (frames, height) = page_frames(layout);
+    let paged = frames
+        .iter()
+        .map(|frame| frame.size.1)
+        .max()
+        .map_or(snap_mm(2.0), |height| height + 2 * UNIT + 2 * snap_mm(2.0));
+    (height as f64 / UNIT as f64, paged as f64 / UNIT as f64)
+}
+
 struct Emitter<'a> {
     layout: &'a LayoutDocument,
     /// Each page's own area, in its coordinates.
@@ -616,7 +628,7 @@ impl<'a> Emitter<'a> {
                         // Only the first table sizes the line's box.
                         if order > 0 && plan.is_some() {
                             self.unsupported(
-                                "a caption on a table after another in its line",
+                                crate::diagnostic::reasons::CAPTION_ON_A_TABLE_AFTER_ANOTHER_IN_ITS_LINE,
                                 &caption_key(table),
                             )?;
                             plans.push(None);
@@ -689,7 +701,10 @@ impl<'a> Emitter<'a> {
                 .iter()
                 .filter(|table| !consumed.contains(table.id.as_str()))
             {
-                self.unsupported("an inline table in no line", &table.id)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::INLINE_TABLE_IN_NO_LINE,
+                    &table.id,
+                )?;
             }
             // The floats in their paint order, as the page-by-page output
             // layers them: objects first, then tables by z-order.
@@ -718,7 +733,7 @@ impl<'a> Emitter<'a> {
                     .any(|margin| *margin != 0)
                 {
                     self.unsupported(
-                        "a caption on a floating table with outer margins",
+                        crate::diagnostic::reasons::CAPTION_ON_A_FLOATING_TABLE_WITH_OUTER_MARGINS,
                         &caption_key(table),
                     )?;
                     plan = None;
@@ -973,9 +988,15 @@ impl<'a> Emitter<'a> {
     fn check_object(&self, object: &PositionedObject) -> Result<(), Unsupported> {
         if object.kind == "equation" {
             if object.equation.is_none() {
-                self.unsupported("an equation without its script", &object.key)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::EQUATION_WITHOUT_ITS_SCRIPT,
+                    &object.key,
+                )?;
             } else if !object.anchor.treat_as_char {
-                self.unsupported("an equation not set in a line", &object.key)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::EQUATION_NOT_SET_IN_A_LINE,
+                    &object.key,
+                )?;
             }
         }
         if object.kind == "pic"
@@ -989,12 +1010,15 @@ impl<'a> Emitter<'a> {
                 .is_none()
         {
             // Lenient, the renderer writes nothing for it (`UnsupportedPolicy::Skip`).
-            self.unsupported("a picture without a supported image resource", &object.key)?;
+            self.unsupported(
+                crate::diagnostic::reasons::PICTURE_WITHOUT_A_SUPPORTED_IMAGE_RESOURCE,
+                &object.key,
+            )?;
         }
         if object.shape.is_none()
             && !matches!(object.kind.as_str(), "pic" | "container" | "equation")
         {
-            self.unsupported("an unsupported object", &object.key)?;
+            self.unsupported(crate::diagnostic::reasons::UNSUPPORTED_OBJECT, &object.key)?;
         }
         if object.caption.as_ref().is_some_and(|caption| {
             caption.paragraphs.iter().any(|paragraph| {
@@ -1005,7 +1029,7 @@ impl<'a> Emitter<'a> {
             })
         }) {
             // An object's caption is not written either way.
-            self.unsupported("a caption with text", &object.key)?;
+            self.unsupported(crate::diagnostic::reasons::CAPTION_WITH_TEXT, &object.key)?;
         }
         object
             .children
@@ -1083,7 +1107,10 @@ impl<'a> Emitter<'a> {
         if let Some(shape) = &object.shape {
             for source in &shape.tables {
                 let Some(table) = self.text_box_tables.get(source.id.as_str()).copied() else {
-                    self.unsupported("a text box table not laid out", &source.id)?;
+                    self.unsupported(
+                        crate::diagnostic::reasons::TEXT_BOX_TABLE_NOT_LAID_OUT,
+                        &source.id,
+                    )?;
                     continue;
                 };
                 let own = presentation::table_box(table, TablePlacement::Nested);
@@ -1158,7 +1185,10 @@ impl<'a> Emitter<'a> {
         // A page-level table is split into fragments by the layout; a table
         // in a cell is drawn once, by the one piece of its cell holding it.
         if *count > 1 && nested {
-            self.unsupported("a nested table drawn more than once", &table.id)?;
+            self.unsupported(
+                crate::diagnostic::reasons::NESTED_TABLE_DRAWN_MORE_THAN_ONCE,
+                &table.id,
+            )?;
             return Ok(Rect {
                 x: origin.0,
                 y: origin.1,
@@ -1204,7 +1234,10 @@ impl<'a> Emitter<'a> {
                     .filter(|object| !object.anchor.treat_as_char)
                 {
                     if cell.repeated_header {
-                        self.unsupported("a floating object in a repeated header row", &cell.id)?;
+                        self.unsupported(
+                            crate::diagnostic::reasons::FLOATING_OBJECT_IN_A_REPEATED_HEADER_ROW,
+                            &cell.id,
+                        )?;
                         continue;
                     }
                     self.check_object(object)?;
@@ -1245,7 +1278,10 @@ impl<'a> Emitter<'a> {
                         .copied()
                         .collect::<Vec<_>>();
                     if cell.repeated_header && !tables.is_empty() {
-                        self.unsupported("a table in a repeated header row", &cell.id)?;
+                        self.unsupported(
+                            crate::diagnostic::reasons::TABLE_IN_A_REPEATED_HEADER_ROW,
+                            &cell.id,
+                        )?;
                         continue;
                     }
                     let line_box = self.annotated_box(
@@ -1263,7 +1299,10 @@ impl<'a> Emitter<'a> {
                         inner = Some(inner.map_or(placed, |inner| inner.union(placed)));
                     }
                     if cell.repeated_header && line.inline_objects.iter().any(has_text_box) {
-                        self.unsupported("an object with text in a repeated header row", &cell.id)?;
+                        self.unsupported(
+                            crate::diagnostic::reasons::OBJECT_WITH_TEXT_IN_A_REPEATED_HEADER_ROW,
+                            &cell.id,
+                        )?;
                         continue;
                     }
                     let inner = if cell.repeated_header {
@@ -1303,7 +1342,10 @@ impl<'a> Emitter<'a> {
                 .filter(|nested| !consumed.contains(nested.id.as_str()))
             {
                 if cell.repeated_header {
-                    self.unsupported("a table in a repeated header row", &cell.id)?;
+                    self.unsupported(
+                        crate::diagnostic::reasons::TABLE_IN_A_REPEATED_HEADER_ROW,
+                        &cell.id,
+                    )?;
                     continue;
                 }
                 // An inline table no line carries stays in the content
@@ -1432,9 +1474,15 @@ impl<'a> Emitter<'a> {
                 Ok(())
             }
             Kind::Table { .. } => self.floating_table(node),
-            Kind::Cell { .. } => self.unsupported("a cell outside its table", &node.key),
+            Kind::Cell { .. } => self.unsupported(
+                crate::diagnostic::reasons::CELL_OUTSIDE_ITS_TABLE,
+                &node.key,
+            ),
             Kind::Object { .. } => self.floating_object(node),
-            Kind::Caption { .. } => self.unsupported("a caption outside its table", &node.key),
+            Kind::Caption { .. } => self.unsupported(
+                crate::diagnostic::reasons::CAPTION_OUTSIDE_ITS_TABLE,
+                &node.key,
+            ),
         }
     }
 
@@ -1481,18 +1529,23 @@ impl<'a> Emitter<'a> {
                         Some(token) => {
                             numbers.by_token.insert(token, text.clone());
                         }
-                        None => {
-                            self.unsupported("a generated number without its control", &node.key)?
-                        }
+                        None => self.unsupported(
+                            crate::diagnostic::reasons::GENERATED_NUMBER_WITHOUT_ITS_CONTROL,
+                            &node.key,
+                        )?,
                     },
                     None if index == 0 => numbers.head = Some(text.clone()),
-                    None => {
-                        self.unsupported("a generated number without its control", &node.key)?
-                    }
+                    None => self.unsupported(
+                        crate::diagnostic::reasons::GENERATED_NUMBER_WITHOUT_ITS_CONTROL,
+                        &node.key,
+                    )?,
                 },
                 // Lenient, the number stays as digits.
                 Inline::UnformattedNumber { number, .. } if self.lenient => {
-                    self.unsupported("a number in an unknown format", &node.key)?;
+                    self.unsupported(
+                        crate::diagnostic::reasons::NUMBER_IN_AN_UNKNOWN_FORMAT,
+                        &node.key,
+                    )?;
                     let text = number.to_string();
                     match span.source_index {
                         Some(at) => {
@@ -1507,7 +1560,10 @@ impl<'a> Emitter<'a> {
                     }
                 }
                 Inline::UnformattedNumber { .. } => {
-                    return refuse("a number in an unknown format", &node.key)
+                    return refuse(
+                        crate::diagnostic::reasons::NUMBER_IN_AN_UNKNOWN_FORMAT,
+                        &node.key,
+                    )
                 }
                 // A 덧말 or 겹친 글자 goes where its control is in the line.
                 Inline::Ruby { .. } | Inline::Compose { .. } => {
@@ -1519,20 +1575,29 @@ impl<'a> Emitter<'a> {
                         }) => {
                             numbers.composed.insert(*token, span.value.clone());
                         }
-                        _ => self.unsupported("an annotation without its control", &node.key)?,
+                        _ => self.unsupported(
+                            crate::diagnostic::reasons::ANNOTATION_WITHOUT_ITS_CONTROL,
+                            &node.key,
+                        )?,
                     }
                 }
             }
         }
         let lines = self.lines.remove(node.key.as_str()).unwrap_or_default();
         if !blank && lines.is_empty() {
-            self.unsupported("a paragraph the layout drew no line for", &node.key)?;
+            self.unsupported(
+                crate::diagnostic::reasons::PARAGRAPH_THE_LAYOUT_DREW_NO_LINE_FOR,
+                &node.key,
+            )?;
         }
         if lines.iter().any(|line| line.block) {
             // A line carrying a table is no phrasing content: the paragraph
             // is a container of its lines, the others grouped in `p`.
             if heading.is_some() {
-                self.unsupported("a heading carrying a table", &node.key)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::HEADING_CARRYING_A_TABLE,
+                    &node.key,
+                )?;
             }
             self.open("div", node);
             self.html.push_str(" data-hwpx-paragraph>");
@@ -1606,7 +1671,7 @@ impl<'a> Emitter<'a> {
             match &child.kind {
                 Kind::Table { .. } => self.floating_table(child)?,
                 Kind::Object { .. } => self.floating_object(child)?,
-                _ => self.unsupported("a paragraph child", &child.key)?,
+                _ => self.unsupported(crate::diagnostic::reasons::PARAGRAPH_CHILD, &child.key)?,
             }
         }
         Ok(())
@@ -1745,7 +1810,7 @@ impl<'a> Emitter<'a> {
                         if generated {
                             // A drawn-only copy has no text of its own to fall back to.
                             self.unsupported(
-                                "an annotation in a drawn-only copy",
+                                crate::diagnostic::reasons::ANNOTATION_IN_A_DRAWN_ONLY_COPY,
                                 &line.paragraph_key,
                             )?;
                         } else {
@@ -1957,13 +2022,22 @@ impl<'a> Emitter<'a> {
                 // The corpus shows these values; any other is a meaning the
                 // converter has no source for.
                 if !matches!(position.as_str(), "TOP" | "BOTTOM") {
-                    return refuse("an annotation position the corpus does not show", key);
+                    return refuse(
+                        crate::diagnostic::reasons::ANNOTATION_POSITION_THE_CORPUS_DOES_NOT_SHOW,
+                        key,
+                    );
                 }
                 if *size_ratio != 0 || align != "CENTER" || !matches!(option, 0 | 4) {
-                    return refuse("an annotation size, alignment or option not shown", key);
+                    return refuse(
+                        crate::diagnostic::reasons::ANNOTATION_SIZE_ALIGNMENT_OR_OPTION_NOT_SHOWN,
+                        key,
+                    );
                 }
                 let (Some(style), Some(_)) = (char_style_id, annotated) else {
-                    return refuse("an annotation without its letters or its line", key);
+                    return refuse(
+                        crate::diagnostic::reasons::ANNOTATION_WITHOUT_ITS_LETTERS_OR_ITS_LINE,
+                        key,
+                    );
                 };
                 let small = annotation_size(size);
                 let gap = presentation::glyph_gap(size);
@@ -2002,7 +2076,7 @@ impl<'a> Emitter<'a> {
                     "SHAPE_RECTANGLE" => '\u{25a1}',
                     "SHAPE_THIN_CIRCULATE_TRIANGLE" => '\u{267a}',
                     _ => {
-                        return refuse("an overlapped-letters shape the corpus does not show", key)
+                        return refuse(crate::diagnostic::reasons::OVERLAPPED_LETTERS_SHAPE_THE_CORPUS_DOES_NOT_SHOW, key)
                     }
                 };
                 // `charSz` -3 is 7pt on 10pt letters whether it counts points
@@ -2013,7 +2087,10 @@ impl<'a> Emitter<'a> {
                     || size != 1000
                     || text.chars().count() != 2
                 {
-                    return refuse("overlapped letters the corpus does not show", key);
+                    return refuse(
+                        crate::diagnostic::reasons::OVERLAPPED_LETTERS_THE_CORPUS_DOES_NOT_SHOW,
+                        key,
+                    );
                 }
                 let base = self
                     .layout
@@ -2026,7 +2103,10 @@ impl<'a> Emitter<'a> {
                         .zip(own)
                         .is_some_and(|(base, own)| same_letters(base, own))
                     {
-                        return refuse("overlapped letters in letters of their own", key);
+                        return refuse(
+                            crate::diagnostic::reasons::OVERLAPPED_LETTERS_IN_LETTERS_OF_THEIR_OWN,
+                            key,
+                        );
                     }
                 }
                 self.html.push_str(&format!(
@@ -2044,7 +2124,7 @@ impl<'a> Emitter<'a> {
                 });
                 Ok(())
             }
-            _ => refuse("an annotation of no known kind", key),
+            _ => refuse(crate::diagnostic::reasons::ANNOTATION_OF_NO_KNOWN_KIND, key),
         }
     }
 
@@ -2086,13 +2166,19 @@ impl<'a> Emitter<'a> {
         let slots = self.context.object_slots.take();
         if phrasing {
             if !slots.is_empty() {
-                self.unsupported("block content in a phrasing object", &object.key)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::BLOCK_CONTENT_IN_A_PHRASING_OBJECT,
+                    &object.key,
+                )?;
                 return Ok(());
             }
             super::semantic::to_phrasing(&mut markup, 0);
         }
         if !source && !slots.is_empty() {
-            self.unsupported("a text box in a drawn-only copy", &object.key)?;
+            self.unsupported(
+                crate::diagnostic::reasons::TEXT_BOX_IN_A_DRAWN_ONLY_COPY,
+                &object.key,
+            )?;
             return Ok(());
         }
         let mut cursor = 0;
@@ -2123,10 +2209,16 @@ impl<'a> Emitter<'a> {
     /// which starts the box's height above the box.
     fn equation(&mut self, object: &PositionedObject, source: bool) -> Result<(), Unsupported> {
         if !source {
-            return refuse("an equation in a drawn-only copy", &object.key);
+            return refuse(
+                crate::diagnostic::reasons::EQUATION_IN_A_DRAWN_ONLY_COPY,
+                &object.key,
+            );
         }
         let Some(node) = self.object_nodes.get(object.key.as_str()).copied() else {
-            return refuse("an equation not in the tree", &object.key);
+            return refuse(
+                crate::diagnostic::reasons::EQUATION_NOT_IN_THE_TREE,
+                &object.key,
+            );
         };
         let (
             Kind::Object {
@@ -2136,7 +2228,10 @@ impl<'a> Emitter<'a> {
             Some(style),
         ) = (&node.kind, object.equation.as_deref())
         else {
-            return refuse("an equation without its script", &object.key);
+            return refuse(
+                crate::diagnostic::reasons::EQUATION_WITHOUT_ITS_SCRIPT,
+                &object.key,
+            );
         };
         self.html.push_str("<span");
         if self.observe {
@@ -2181,7 +2276,10 @@ impl<'a> Emitter<'a> {
     /// and the table, placed against the box the drawing writes it in.
     fn text_box_table(&mut self, id: &str) -> Result<(), Unsupported> {
         let Some(node) = self.table_nodes.get(id).copied() else {
-            self.unsupported("a text box table not in the tree", id)?;
+            self.unsupported(
+                crate::diagnostic::reasons::TEXT_BOX_TABLE_NOT_IN_THE_TREE,
+                id,
+            )?;
             return Ok(());
         };
         self.deferred_tables.remove(id);
@@ -2195,7 +2293,7 @@ impl<'a> Emitter<'a> {
     /// its paragraphs (and lists), not its captions or drawn children.
     fn text_box_content(&mut self, first: &str) -> Result<(), Unsupported> {
         let Some(owner) = self.text_owners.get(first).copied() else {
-            self.unsupported("a text box not in the tree", first)?;
+            self.unsupported(crate::diagnostic::reasons::TEXT_BOX_NOT_IN_THE_TREE, first)?;
             return Ok(());
         };
         for child in &owner.children {
@@ -2213,7 +2311,10 @@ impl<'a> Emitter<'a> {
             return Ok(());
         }
         let Some(pieces) = self.floats.remove(node.key.as_str()) else {
-            self.unsupported("an object the layout did not place", &node.key)?;
+            self.unsupported(
+                crate::diagnostic::reasons::OBJECT_THE_LAYOUT_DID_NOT_PLACE,
+                &node.key,
+            )?;
             return Ok(());
         };
         for piece in pieces {
@@ -2273,7 +2374,10 @@ impl<'a> Emitter<'a> {
     /// cells, which are placed against it.
     fn inline_table(&mut self, page: usize, table: &'a Table) -> Result<(), Unsupported> {
         let Some(node) = self.table_nodes.get(table.id.as_str()).copied() else {
-            self.unsupported("an inline table not in the tree", &table.id)?;
+            self.unsupported(
+                crate::diagnostic::reasons::INLINE_TABLE_NOT_IN_THE_TREE,
+                &table.id,
+            )?;
             return Ok(());
         };
         // A table sharing its box with its caption: the box is the whole
@@ -2413,12 +2517,15 @@ impl<'a> Emitter<'a> {
     fn table_structure(&mut self, node: &'a Node) -> Result<(), Unsupported> {
         let key = node.key.as_str();
         let Some(source) = self.sources.get(key).copied() else {
-            self.unsupported("a table not in the source", key)?;
+            self.unsupported(crate::diagnostic::reasons::TABLE_NOT_IN_THE_SOURCE, key)?;
             return Ok(());
         };
         let pieces = self.fragments.get(key).copied().unwrap_or(0);
         if pieces == 0 {
-            self.unsupported("a table the layout did not place", key)?;
+            self.unsupported(
+                crate::diagnostic::reasons::TABLE_THE_LAYOUT_DID_NOT_PLACE,
+                key,
+            )?;
             return Ok(());
         }
         self.tables_written.insert(key.to_owned());
@@ -2441,11 +2548,11 @@ impl<'a> Emitter<'a> {
                         .iter()
                         .any(|part| part.key == child.key)
                     {
-                        self.unsupported("a caption with text", &child.key)?
+                        self.unsupported(crate::diagnostic::reasons::CAPTION_WITH_TEXT, &child.key)?
                     }
                 }
                 Kind::Caption { .. } => {}
-                _ => self.unsupported("a table child", &child.key)?,
+                _ => self.unsupported(crate::diagnostic::reasons::TABLE_CHILD, &child.key)?,
             }
         }
         let single = source.rows == 1 && source.columns == 1;
@@ -2455,7 +2562,10 @@ impl<'a> Emitter<'a> {
             // A box of cells (D33) has no place for a caption; no sample
             // shows which structure should hold one.
             if let Some(caption) = caption {
-                self.unsupported("a caption on a table without a grid", &caption.key)?;
+                self.unsupported(
+                    crate::diagnostic::reasons::CAPTION_ON_A_TABLE_WITHOUT_A_GRID,
+                    &caption.key,
+                )?;
             }
             self.open("div", node);
             self.html.push_str(&format!(
@@ -2489,7 +2599,10 @@ impl<'a> Emitter<'a> {
                         continue;
                     };
                     let Some(cell_node) = cells.get(cell.id.as_str()).copied() else {
-                        self.unsupported("a cell not in the tree", &cell.id)?;
+                        self.unsupported(
+                            crate::diagnostic::reasons::CELL_NOT_IN_THE_TREE,
+                            &cell.id,
+                        )?;
                         self.html.push_str(if boxed {
                             "<div></div>"
                         } else if cell.is_header {
@@ -2579,7 +2692,7 @@ impl<'a> Emitter<'a> {
                 Kind::Paragraph { .. } | Kind::Heading { .. } | Kind::List { .. } => {
                     self.node(child)?
                 }
-                _ => self.unsupported("a caption child", &child.key)?,
+                _ => self.unsupported(crate::diagnostic::reasons::CAPTION_CHILD, &child.key)?,
             }
         }
         self.html.push_str("</div>");
@@ -2632,7 +2745,7 @@ fn caption_plan(table: &Table) -> Result<Option<TableCaptionPlan>, Unsupported> 
     })?;
     if plan.is_some() && table.fragment_rows.is_some() {
         return refuse(
-            "a caption on a table split across pages",
+            crate::diagnostic::reasons::CAPTION_ON_A_TABLE_SPLIT_ACROSS_PAGES,
             &caption_key(table),
         );
     }
@@ -2997,13 +3110,19 @@ fn render_direct_with(
     // Everything placed is written exactly once. A lenient run reports what
     // is left over instead of refusing the document.
     if let Some(key) = emitter.lines.keys().min() {
-        emitter.unsupported("a line of no paragraph in the tree", key)?;
+        emitter.unsupported(
+            crate::diagnostic::reasons::LINE_OF_NO_PARAGRAPH_IN_THE_TREE,
+            key,
+        )?;
     }
     if let Some(key) = emitter.repeats.keys().chain(emitter.drawings.keys()).min() {
-        emitter.unsupported("a table drawing of no table in the tree", key)?;
+        emitter.unsupported(
+            crate::diagnostic::reasons::TABLE_DRAWING_OF_NO_TABLE_IN_THE_TREE,
+            key,
+        )?;
     }
     if emitter.written != emitter.placed && !lenient {
-        return refuse("a line written twice", "");
+        return refuse(crate::diagnostic::reasons::LINE_WRITTEN_TWICE, "");
     }
     if let Some(key) = emitter
         .table_nodes
@@ -3011,7 +3130,10 @@ fn render_direct_with(
         .filter(|key| !emitter.tables_written.contains(**key))
         .min()
     {
-        emitter.unsupported("a table of the tree not written", key)?;
+        emitter.unsupported(
+            crate::diagnostic::reasons::TABLE_OF_THE_TREE_NOT_WRITTEN,
+            key,
+        )?;
     }
     emitter.report.skipped = emitter.skipped.take();
     let scripts = scripts(options);

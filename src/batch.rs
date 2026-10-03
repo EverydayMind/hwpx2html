@@ -5,12 +5,11 @@ use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::cli::{BatchArgs, CommonArgs, ConvertArgs, ResourceMode};
+use crate::convert::{convert_input, unsupported_count, ConvertOptions, ConvertOutcome};
+use crate::diagnostic::Diagnostic;
 use crate::error::{ConvertError, Result};
 use crate::hwpx::package::{estimate_memory_for_path, MIB};
-use crate::layout::layout_document;
-use crate::model::{Block, Document, Paragraph, PositionedObject, Table};
-use crate::render::emit::render_direct_lenient;
-use crate::render::{render_bundle, RenderBundle, RenderOptions};
+use crate::render::RenderBundle;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ReportRecord {
@@ -219,61 +218,50 @@ fn convert_file(
     if output.exists() && !force {
         return Err(ConvertError::OutputExists(output.to_path_buf()));
     }
-    let document = crate::read_document(input, common.limits())?;
-    let unsupported_objects = unsupported_count(&document);
-    let mut warnings = document.warnings.clone();
-    if common.strict && unsupported_objects > 0 {
-        return Ok(ReportRecord {
-            input: input.display().to_string(),
-            output: Some(output.display().to_string()),
-            status: "failed".to_owned(),
-            warnings,
-            unsupported_objects,
-            error: Some(ConvertError::StrictUnsupported.to_string()),
-        });
-    }
-    let layout = layout_document(&document);
     let directory_name = format!(
         "{}.assets",
         output.file_name().unwrap_or_default().to_string_lossy()
     );
-    let options = RenderOptions {
-        source_name: input
-            .file_stem()
-            .map(|name| name.to_string_lossy().into_owned()),
-        ..common.render_options()
+    let options = ConvertOptions {
+        render: common.render_options(),
+        limits: common.limits(),
+        strict: common.strict,
     };
-    // The document is written from its semantic tree and the layout's
-    // placement (`render::emit`): one element for a paragraph or table that
-    // crosses pages, and the browser's own print layout. A part the writer
-    // cannot write is left out (or written more plainly) and named in the
-    // warnings; the rest of the document is written. `--strict` rejects the
-    // document instead, before any output is created. `--no-logical-dom` keeps
-    // the page-by-page renderer for diagnosis.
-    let bundle = if common.no_logical_dom {
-        render_bundle(&layout, &options, &directory_name)
-    } else {
-        let (bundle, report) =
-            render_direct_lenient(&document, &layout, &options, &directory_name, false)
-                .map_err(|unsupported| ConvertError::UnwritableContent(unsupported.to_string()))?;
-        warnings.extend(
-            report
-                .skipped
-                .iter()
-                .map(|skipped| format!("skipped: {skipped}")),
-        );
-        if common.strict && !report.skipped.is_empty() {
+    let bytes = crate::hwpx::package::read_input(input, &options.limits)?;
+    let conversion = match convert_input(
+        input,
+        bytes,
+        &options,
+        &directory_name,
+        common.no_logical_dom,
+    )? {
+        ConvertOutcome::Converted(conversion) => conversion,
+        ConvertOutcome::Rejected {
+            diagnostics,
+            unsupported_objects,
+        } => {
             return Ok(ReportRecord {
                 input: input.display().to_string(),
                 output: Some(output.display().to_string()),
                 status: "failed".to_owned(),
-                warnings,
+                warnings: diagnostics
+                    .iter()
+                    .filter_map(Diagnostic::legacy_text)
+                    .map(str::to_owned)
+                    .collect(),
                 unsupported_objects,
                 error: Some(ConvertError::StrictUnsupported.to_string()),
             });
         }
-        bundle
     };
+    let unsupported_objects = conversion.summary.unsupported_objects;
+    let warnings = conversion
+        .diagnostics
+        .iter()
+        .filter_map(Diagnostic::legacy_text)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let bundle = conversion.bundle;
     match resource_mode {
         ResourceMode::External => {
             write_resources(&output.with_file_name(directory_name), &bundle)?;
@@ -420,83 +408,6 @@ fn write_report(path: &Path, records: &[ReportRecord]) -> Result<()> {
         .collect::<std::result::Result<Vec<_>, _>>()?
         .join("\n");
     atomic_write(path, format!("{text}\n").as_bytes(), true)
-}
-
-/// The objects the writers cannot draw (`PositionedObject::is_drawn`), at any
-/// depth: in a paragraph, a cell, a nested table, a container, a text box or a
-/// caption.
-fn unsupported_count(document: &Document) -> usize {
-    let mut count = 0;
-    for block in document.sections.iter().flat_map(|section| &section.blocks) {
-        match block {
-            Block::Paragraph(paragraph) => count += paragraph_unsupported(document, paragraph),
-            Block::Table(table) => count += table_unsupported(document, table),
-            Block::Object(object) => count += object_unsupported(document, object),
-        }
-    }
-    count
-}
-
-fn paragraph_unsupported(document: &Document, paragraph: &Paragraph) -> usize {
-    paragraph
-        .objects
-        .iter()
-        .map(|object| object_unsupported(document, object))
-        .sum()
-}
-
-fn table_unsupported(document: &Document, table: &Table) -> usize {
-    let caption = table.caption.as_deref();
-    caption
-        .into_iter()
-        .flat_map(|caption| &caption.paragraphs)
-        .map(|paragraph| paragraph_unsupported(document, paragraph))
-        .sum::<usize>()
-        + table
-            .cells
-            .iter()
-            .map(|cell| {
-                cell.paragraphs
-                    .iter()
-                    .map(|paragraph| paragraph_unsupported(document, paragraph))
-                    .sum::<usize>()
-                    + cell
-                        .tables
-                        .iter()
-                        .map(|nested| table_unsupported(document, nested))
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
-}
-
-fn object_unsupported(document: &Document, object: &PositionedObject) -> usize {
-    let own = usize::from(!object.is_drawn(&document.assets));
-    let caption = object
-        .caption
-        .as_deref()
-        .into_iter()
-        .flat_map(|caption| &caption.paragraphs)
-        .map(|paragraph| paragraph_unsupported(document, paragraph))
-        .sum::<usize>();
-    let text_box = object.shape.as_deref().map_or(0, |shape| {
-        shape
-            .paragraphs
-            .iter()
-            .map(|paragraph| paragraph_unsupported(document, paragraph))
-            .sum::<usize>()
-            + shape
-                .tables
-                .iter()
-                .map(|table| table_unsupported(document, table))
-                .sum::<usize>()
-    });
-    own + caption
-        + text_box
-        + object
-            .children
-            .iter()
-            .map(|child| object_unsupported(document, child))
-            .sum::<usize>()
 }
 
 #[cfg(test)]

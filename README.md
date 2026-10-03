@@ -6,7 +6,7 @@
 
 > Convert a Korean HWPX document into a single self-contained HTML file, so that both people and AI can read public documents as originally written.
 
-현재 버전은 **v0.9**입니다. 실행 프로그램과 Cargo 패키지에 표시되는 버전은 `0.9.0`입니다.
+현재 버전은 **v0.10**입니다. 실행 프로그램과 Cargo 패키지에 표시되는 버전은 `0.10.0`입니다.
 
 ## 왜 필요한가요?
 
@@ -31,9 +31,33 @@
 
 ## 내려받기
 
-[최신 릴리스](https://github.com/everydaymind/hwpx2html/releases/latest)에서 `hwpx2html-0.9.0-windows-x86_64.zip`을 내려받아 압축을 풉니다. ZIP에는 `hwpx2html.exe`, 이 사용 안내, 라이선스와 의존성 라이선스 안내가 들어 있습니다.
+[최신 릴리스](https://github.com/everydaymind/hwpx2html/releases/latest)에서 `hwpx2html-0.10.0-windows-x86_64.zip`을 내려받아 압축을 풉니다. ZIP에는 `hwpx2html.exe`, 이 사용 안내, 라이선스와 의존성 라이선스 안내가 들어 있습니다.
 
 현재 제공하는 실행 파일은 **Windows 64비트용 명령줄 프로그램**입니다. 프로그램을 더블 클릭하기보다 PowerShell에서 아래 명령으로 실행해 주세요. 다른 운영체제에서는 소스로 빌드할 수 있습니다.
+
+## 게시 도우미: 명령줄 없이 변환하기
+
+오프라인 게시 도우미 `hwpx2html-publisher.html`을 단일 파일로 제공합니다. v0.10부터 릴리스 ZIP에 함께 포함되어 있습니다.
+
+1. `hwpx2html-publisher.html`을 Chrome 또는 Edge에서 엽니다. 브라우저별 로컬 파일 동작은 다음 검증에서 확인합니다.
+2. HWPX 파일을 선택하거나 끌어 놓고 **HTML로 변환**을 누릅니다. 원본은 PC 안에서 처리하며 서버로 전송하지 않습니다.
+3. 미리보기와 한국어 경고를 원본과 대조합니다. 경고의 쪽 번호를 누르면 한 쪽 보기 미리보기가 해당 쪽으로 이동합니다. 전체 보기에서는 쪽 번호를 안내합니다.
+4. 경고가 있으면 확인 항목을 체크한 뒤 **HTML 내려받기**로 결과를 저장합니다. 공개 HTML 주소를 입력하면 링크와 iframe 삽입 코드를 복사할 수 있습니다. div 직접 포함 안내와 변환 정보 복사도 제공합니다.
+
+한 쪽 보기·전체 보기, 제목·목록 구조 추론, 엄격 모드를 선택할 수 있습니다. 제목은 원본 파일명이며, 그림과 CSS는 HTML에 내장됩니다. 미리보기와 내려받기는 같은 변환 결과를 사용합니다. 네이티브 CLI와 WASM의 바이트 동일성은 검증 예정입니다.
+
+원본의 그림 설명과 의미 있는 원본 그림 파일명이 대체 텍스트에, 원본 문서 제목이 HTML 메타데이터에 남을 수 있으므로 공개 전에 확인하세요. 이 도구는 개인정보 제거 기능을 제공하지 않으며, 메모·변경 추적이 일괄 제거된다고 보장하지 않습니다. 대형 문서의 브라우저 메모리 사용과 업무 PC의 파일 실행 정책도 확인이 필요합니다.
+
+소스에서 도구를 만들려면 Rust의 WASM 타깃과 Python 3.11 이상이 필요합니다. `wasm-bindgen`과 npm은 필요하지 않습니다.
+
+```powershell
+rustup target add wasm32-unknown-unknown
+python scripts/build_publisher.py
+```
+
+실행할 파일은 `target/publisher/hwpx2html-publisher.html`입니다. 소스 폴더의 `web/publisher.html`을 열어도 빌드한 도구로 이동합니다. `web/publisher.html.in`은 WASM과 스크립트를 넣기 전의 빌드용 템플릿이므로 직접 실행하지 않습니다.
+
+기관 서버에서 변환하려면 CLI 또는 Rust의 `convert::convert_bytes` API로 단일 HTML을 만든 뒤 저장하고 게시글에서 링크하거나 iframe으로 표시할 수 있습니다. 서버 운영과 CMS 업로드 연동은 기관별로 구현합니다.
 
 ## 빠른 시작: 단일 HTML 만들기
 

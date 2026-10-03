@@ -65,13 +65,13 @@ pub fn table_caption_plan(table: &Table) -> Result<Option<TableCaptionPlan>, &'s
         return Ok(None);
     };
     if !caption.side.eq_ignore_ascii_case("TOP") {
-        return Err("a caption beside or below its table");
+        return Err(crate::diagnostic::reasons::CAPTION_BESIDE_OR_BELOW_ITS_TABLE);
     }
     if caption.full_size {
-        return Err("a caption spanning its table's margins");
+        return Err(crate::diagnostic::reasons::CAPTION_SPANNING_ITS_TABLE_S_MARGINS);
     }
     let Some(width) = caption.last_width.filter(|width| *width > 0) else {
-        return Err("a caption without its width");
+        return Err(crate::diagnostic::reasons::CAPTION_WITHOUT_ITS_WIDTH);
     };
     if caption.unparsed_tables > 0
         || caption
@@ -79,17 +79,17 @@ pub fn table_caption_plan(table: &Table) -> Result<Option<TableCaptionPlan>, &'s
             .iter()
             .any(|paragraph| paragraph.has_inline_table || !paragraph.objects.is_empty())
     {
-        return Err("a caption holding a table or object");
+        return Err(crate::diagnostic::reasons::CAPTION_HOLDING_A_TABLE_OR_OBJECT);
     }
     let mut height: HwpUnit = 0;
     let mut previous = None;
     for paragraph in &caption.paragraphs {
         if paragraph.lines.is_empty() {
-            return Err("a caption paragraph without its line positions");
+            return Err(crate::diagnostic::reasons::CAPTION_PARAGRAPH_WITHOUT_ITS_LINE_POSITIONS);
         }
         for line in &paragraph.lines {
             if previous.is_some_and(|top| line.top <= top) {
-                return Err("a caption whose lines restart");
+                return Err(crate::diagnostic::reasons::CAPTION_WHOSE_LINES_RESTART);
             }
             previous = Some(line.top);
             height = height.max(line.top.saturating_add(line.height.max(line.text_height)));
@@ -303,29 +303,29 @@ mod tests {
         };
         assert_eq!(
             refused(&|caption| caption.side = "BOTTOM".to_owned()),
-            "a caption beside or below its table"
+            crate::diagnostic::reasons::CAPTION_BESIDE_OR_BELOW_ITS_TABLE
         );
         assert_eq!(
             refused(&|caption| caption.full_size = true),
-            "a caption spanning its table's margins"
+            crate::diagnostic::reasons::CAPTION_SPANNING_ITS_TABLE_S_MARGINS
         );
         assert_eq!(
             refused(&|caption| caption.last_width = None),
-            "a caption without its width"
+            crate::diagnostic::reasons::CAPTION_WITHOUT_ITS_WIDTH
         );
         assert_eq!(
             refused(&|caption| caption.unparsed_tables = 1),
-            "a caption holding a table or object"
+            crate::diagnostic::reasons::CAPTION_HOLDING_A_TABLE_OR_OBJECT
         );
         assert_eq!(
             refused(&|caption| caption.paragraphs[0].lines.clear()),
-            "a caption paragraph without its line positions"
+            crate::diagnostic::reasons::CAPTION_PARAGRAPH_WITHOUT_ITS_LINE_POSITIONS
         );
         assert_eq!(
             refused(&|caption| caption
                 .paragraphs
                 .push(paragraph("둘째", &[(0, 1000, 1000)]))),
-            "a caption whose lines restart"
+            crate::diagnostic::reasons::CAPTION_WHOSE_LINES_RESTART
         );
     }
 }

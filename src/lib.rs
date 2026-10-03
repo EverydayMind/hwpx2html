@@ -1,6 +1,8 @@
 pub mod assets;
 pub mod batch;
 pub mod cli;
+pub mod convert;
+pub mod diagnostic;
 pub mod error;
 pub mod hwpx;
 pub mod layout;
@@ -32,95 +34,118 @@ impl HwpxReader {
             limits,
         }
     }
+
+    pub fn read_bytes(&self, bytes: Vec<u8>) -> Result<Document> {
+        read_package(
+            Package::from_bytes(self.path.clone(), bytes, &self.limits)?,
+            &self.limits,
+        )
+    }
 }
 
 impl DocumentReader for HwpxReader {
     fn read(&self) -> Result<Document> {
         let package = Package::open(&self.path, &self.limits)?;
-        let estimated = estimate_memory(&package);
-        if estimated > self.limits.memory_budget_bytes {
-            return Err(ConvertError::MemoryBudgetExceeded {
-                estimated: estimated / MIB,
-                budget: self.limits.memory_budget_bytes / MIB,
-            });
-        }
-        let mut header = HeaderStyles::parse(package.required("Contents/header.xml")?)?;
-        let spine = Spine::parse(&package)?;
-        let section_bytes = spine
-            .sections
-            .iter()
-            .map(|item| Ok((item.path.clone(), package.required(&item.path)?)))
-            .collect::<Result<Vec<_>>>()?;
-        let redundant_char_styles =
-            crate::hwpx::section::collect_redundant_page_number_styles(&section_bytes)?;
-        let font_alias_char_styles = std::mem::take(&mut header.char_style_font_aliases);
-        header.compact_char_styles(&redundant_char_styles, &font_alias_char_styles);
-        let duplicate_para_styles =
-            crate::hwpx::section::collect_duplicate_picture_only_para_styles(
-                package.required("Contents/header.xml")?,
-                &section_bytes,
-            )?;
-        header.compact_para_styles(&duplicate_para_styles);
-        let mut sections = Vec::with_capacity(spine.sections.len());
-        let mut warnings = Vec::new();
-        let mut page_numbers = PageNumberPolicy {
-            start: 1,
-            format: "DIGIT".to_owned(),
-            side_char: "-".to_owned(),
-            ..PageNumberPolicy::default()
-        };
-        for (index, item) in spine.sections.iter().enumerate() {
-            let bytes = package.required(&item.path)?;
-            let parsed = parse_section(bytes, index, &item.path, &header)?;
-            if parsed.has_page_number_control {
-                page_numbers.enabled = true;
-            }
-            if let Some(format) = parsed.page_number_format.filter(|value| !value.is_empty()) {
-                page_numbers.format = format;
-            }
-            if let Some(side) = parsed.page_number_side.filter(|value| !value.is_empty()) {
-                page_numbers.side_char = side;
-            }
-            let missing_lines = parsed
-                .section
-                .blocks
-                .iter()
-                .filter_map(|block| match block {
-                    crate::model::Block::Paragraph(paragraph) if paragraph.lines.is_empty() => {
-                        Some(paragraph.id.clone())
-                    }
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            if !missing_lines.is_empty() {
-                warnings.push(format!("{item_path}: {} paragraph(s) have no linesegarray; rendered as one unwrapped line", missing_lines.len(), item_path = item.path));
-            }
-            sections.push(parsed.section);
-        }
-        let assets = collect_assets(&package)?;
-        let char_styles = header.char_styles.into_values().collect();
-        let para_styles = header.para_styles.into_values().collect();
-        let numberings = header.numberings;
-        Ok(Document {
-            title: if spine.title.is_empty() {
-                String::new()
-            } else {
-                spine.title
-            },
-            input_sha256: package.input_sha256,
-            sections,
-            char_styles,
-            para_styles,
-            numberings,
-            page_numbers,
-            assets,
-            warnings,
-        })
+        read_package(package, &self.limits)
     }
+}
+
+fn read_package(package: Package, limits: &Limits) -> Result<Document> {
+    let estimated = estimate_memory(&package);
+    if estimated > limits.memory_budget_bytes {
+        return Err(ConvertError::MemoryBudgetExceeded {
+            estimated: estimated / MIB,
+            budget: limits.memory_budget_bytes / MIB,
+        });
+    }
+    let mut header = HeaderStyles::parse(package.required("Contents/header.xml")?)?;
+    let spine = Spine::parse(&package)?;
+    let section_bytes = spine
+        .sections
+        .iter()
+        .map(|item| Ok((item.path.clone(), package.required(&item.path)?)))
+        .collect::<Result<Vec<_>>>()?;
+    let redundant_char_styles =
+        crate::hwpx::section::collect_redundant_page_number_styles(&section_bytes)?;
+    let font_alias_char_styles = std::mem::take(&mut header.char_style_font_aliases);
+    header.compact_char_styles(&redundant_char_styles, &font_alias_char_styles);
+    let duplicate_para_styles = crate::hwpx::section::collect_duplicate_picture_only_para_styles(
+        package.required("Contents/header.xml")?,
+        &section_bytes,
+    )?;
+    header.compact_para_styles(&duplicate_para_styles);
+    let mut sections = Vec::with_capacity(spine.sections.len());
+    let mut warnings = Vec::new();
+    let mut page_numbers = PageNumberPolicy {
+        start: 1,
+        format: "DIGIT".to_owned(),
+        side_char: "-".to_owned(),
+        ..PageNumberPolicy::default()
+    };
+    for (index, item) in spine.sections.iter().enumerate() {
+        let bytes = package.required(&item.path)?;
+        let parsed = parse_section(bytes, index, &item.path, &header)?;
+        if parsed.has_page_number_control {
+            page_numbers.enabled = true;
+        }
+        if let Some(format) = parsed.page_number_format.filter(|value| !value.is_empty()) {
+            page_numbers.format = format;
+        }
+        if let Some(side) = parsed.page_number_side.filter(|value| !value.is_empty()) {
+            page_numbers.side_char = side;
+        }
+        let missing_lines = parsed
+            .section
+            .blocks
+            .iter()
+            .filter_map(|block| match block {
+                crate::model::Block::Paragraph(paragraph) if paragraph.lines.is_empty() => {
+                    Some(paragraph.id.clone())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if !missing_lines.is_empty() {
+            warnings.push(format!(
+                "{item_path}: {} paragraph(s) have no linesegarray; rendered as one unwrapped line",
+                missing_lines.len(),
+                item_path = item.path
+            ));
+        }
+        sections.push(parsed.section);
+    }
+    let assets = collect_assets(&package)?;
+    let char_styles = header.char_styles.into_values().collect();
+    let para_styles = header.para_styles.into_values().collect();
+    let numberings = header.numberings;
+    Ok(Document {
+        title: if spine.title.is_empty() {
+            String::new()
+        } else {
+            spine.title
+        },
+        input_sha256: package.input_sha256,
+        sections,
+        char_styles,
+        para_styles,
+        numberings,
+        page_numbers,
+        assets,
+        warnings,
+    })
 }
 
 pub fn read_document(path: impl AsRef<Path>, limits: Limits) -> Result<Document> {
     HwpxReader::new(path, limits).read()
+}
+
+/// Read bytes with the same package, schema and memory limits as a file.
+pub fn read_document_bytes(
+    label: impl AsRef<Path>,
+    bytes: Vec<u8>,
+    limits: Limits,
+) -> Result<Document> {
+    HwpxReader::new(label, limits).read_bytes(bytes)
 }
 
 pub fn open_package(path: impl AsRef<Path>, limits: &Limits) -> Result<Package> {
