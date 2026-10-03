@@ -6,7 +6,7 @@
 
 > Convert a Korean HWPX document into a single self-contained HTML file, so that both people and AI can read public documents as originally written.
 
-현재 버전은 **v0.10**입니다. 실행 프로그램과 Cargo 패키지에 표시되는 버전은 `0.10.0`입니다.
+현재 버전은 **v0.11**입니다. 실행 프로그램과 Cargo 패키지에 표시되는 버전은 `0.11.0`입니다.
 
 ## 왜 필요한가요?
 
@@ -31,7 +31,7 @@
 
 ## 내려받기
 
-[최신 릴리스](https://github.com/everydaymind/hwpx2html/releases/latest)에서 `hwpx2html-0.10.0-windows-x86_64.zip`을 내려받아 압축을 풉니다. ZIP에는 `hwpx2html.exe`, 이 사용 안내, 라이선스와 의존성 라이선스 안내가 들어 있습니다.
+[최신 릴리스](https://github.com/everydaymind/hwpx2html/releases/latest)에서 `hwpx2html-0.11.0-windows-x86_64.zip`을 내려받아 압축을 풉니다. ZIP에는 `hwpx2html.exe`, 이 사용 안내, 라이선스와 의존성 라이선스 안내가 들어 있습니다.
 
 현재 제공하는 실행 파일은 **Windows 64비트용 명령줄 프로그램**입니다. 프로그램을 더블 클릭하기보다 PowerShell에서 아래 명령으로 실행해 주세요. 다른 운영체제에서는 소스로 빌드할 수 있습니다.
 
@@ -98,6 +98,8 @@ python scripts/build_publisher.py
 
 ## 자주 쓰는 옵션
 
+소스에 원문·모바일 읽기 보기 전환 기능을 추가했습니다. 아래 `--reading-view` 옵션은 아직 빌드·검증 전이며, v0.10.0 배포본에는 포함되지 않습니다.
+
 | 옵션 | 용도 |
 | --- | --- |
 | `--resource-mode embedded` | 이미지·CSS가 내장된 단일 HTML 생성 |
@@ -106,6 +108,8 @@ python scripts/build_publisher.py
 | `--strict` | 지원하지 않는 개체나 누락될 부분이 있으면 HTML을 생성하지 않고 실패 처리 |
 | `--report "결과.jsonl"` | 변환 결과와 경고 기록 |
 | `--no-page-navigation` | 모든 쪽을 한 번에 표시 |
+| `--reading-view` | HTML 하나에 원문·모바일 읽기 보기와 글자 크기 조절 포함(현재 선택 기능) |
+| `--no-reading-view` | 읽기 보기 제외 |
 | `--no-infer-structure` | 원본에 명시된 제목·목록만 사용하고 문단 표시로 추가 구조를 추론하지 않음 |
 
 모든 옵션은 도움말에서 확인할 수 있습니다.
@@ -115,6 +119,20 @@ python scripts/build_publisher.py
 .\hwpx2html.exe convert --help
 .\hwpx2html.exe batch --help
 ```
+
+### 원문·모바일 읽기 보기
+
+소스에서 새 실행 파일을 빌드한 뒤 다음처럼 선택합니다. `batch`에도 같은 옵션을 사용할 수 있습니다.
+
+```powershell
+.\hwpx2html.exe convert --input "문서.hwpx" --output "문서.html" --resource-mode embedded --reading-view
+```
+
+두 보기는 같은 본문 요소를 사용합니다. 좁은 터치 화면과 좁은 iframe에서는 읽기 보기로, 그 밖에는 원문 보기로 시작하며 열람자의 선택을 브라우저에 저장합니다. 원문 탐색 막대의 **읽기 보기** 단추로 전환합니다. 탐색 막대를 끈 문서에서는 별도 단추가 나타납니다.
+
+읽기 보기에서 **원문 보기**, **가−**, **가+** 단추를 사용할 수 있습니다. 글자 크기는 90·100·115·130·150%이고, 시스템 글꼴로 문단을 화면 폭에 맞춰 배치합니다. 넓은 표는 자체 가로 스크롤로 읽고, 도형·잘린 그림은 내부 배치를 유지해 화면 폭에 맞춰 줄입니다. 인쇄는 원문 배치를 사용하며 인쇄 후 열람 보기로 돌아옵니다. 이 동작과 원문 배치의 불변 여부는 다음 검증 세션에서 확인합니다.
+
+`--no-page-navigation`과 함께 사용할 수 있고, 쪽 단위 진단 출력 `--no-logical-dom`과는 함께 사용할 수 없습니다. JavaScript를 사용할 수 없으면 모든 쪽이 원문 배치로 표시됩니다. 모바일 열람이 많으면 독립 HTML 링크를 권합니다. iframe의 고정 높이에서는 읽기 보기 안쪽에 세로 스크롤이 생깁니다. div 직접 포함에서는 사이트의 viewport·CSS·스크립트 정책을 따르며, 이미 있는 viewport는 변경하지 않습니다.
 
 ### 이미지·CSS를 별도 파일로 제공하기
 

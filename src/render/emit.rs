@@ -62,6 +62,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::bundle::{self, RenderBundle, RenderContext};
 use super::html::{self, escape_html, escape_html_attribute, GradientIds, PatternIds};
+use super::reading;
 use super::semantic::{plan_rows, Slot};
 use super::units::{px, snap_mm, split, UNIT};
 use super::{RenderOptions, UnsupportedPolicy};
@@ -198,6 +199,16 @@ pub const NAVIGATION_SCRIPT: &str = r#"(()=>{const root=document.documentElement
 
 /// The scripts `options` asks for, in document order.
 fn scripts(options: &RenderOptions) -> Vec<&'static str> {
+    if options.reading_view && options.logical_dom {
+        return [
+            (true, reading::READING_SCRIPT),
+            (options.page_navigation, reading::NAVIGATION_SCRIPT),
+            (options.adjust_letter_spacing, reading::CORRECTION_SCRIPT),
+        ]
+        .into_iter()
+        .filter_map(|(on, script)| on.then_some(script))
+        .collect();
+    }
     [
         (options.page_navigation, NAVIGATION_SCRIPT),
         (options.adjust_letter_spacing, html::SCRIPT_SOURCE),
@@ -1600,6 +1611,10 @@ impl<'a> Emitter<'a> {
                 )?;
             }
             self.open("div", node);
+            if self.options.reading_view {
+                self.html
+                    .push_str(&format!(" class=\"hwpx-rp{}\"", source.style_id));
+            }
             self.html.push_str(" data-hwpx-paragraph>");
             let mut in_p = false;
             for placed in &lines {
@@ -1632,6 +1647,10 @@ impl<'a> Emitter<'a> {
                 None => "p",
             };
             self.open(tag, node);
+            if self.options.reading_view {
+                self.html
+                    .push_str(&format!(" class=\"hwpx-rp{}\"", source.style_id));
+            }
             match heading {
                 Some((_, true)) => self.html.push_str(" data-inferred=\"heading\""),
                 Some(_) => {}
@@ -2181,6 +2200,13 @@ impl<'a> Emitter<'a> {
             )?;
             return Ok(());
         }
+        let reading_tag = if phrasing { "span" } else { "div" };
+        if self.options.reading_view {
+            self.html.push('<');
+            self.html.push_str(reading_tag);
+            self.html.push_str(&reading::object_attributes(object));
+            self.html.push('>');
+        }
         let mut cursor = 0;
         for (offset, content) in slots {
             self.html.push_str(&markup[cursor..offset]);
@@ -2191,6 +2217,9 @@ impl<'a> Emitter<'a> {
             cursor = offset;
         }
         self.html.push_str(&markup[cursor..]);
+        if self.options.reading_view {
+            self.close(reading_tag);
+        }
         if source {
             self.objects_written.insert(object.key.clone());
         }
@@ -2558,6 +2587,9 @@ impl<'a> Emitter<'a> {
         let single = source.rows == 1 && source.columns == 1;
         let boxed = single || (pieces == 1 && !source.cells.iter().any(html::cell_has_content));
         let rows = plan_rows(source);
+        if self.options.reading_view {
+            self.html.push_str("<div class=\"hwpx-read-scroll\">");
+        }
         if boxed {
             // A box of cells (D33) has no place for a caption; no sample
             // shows which structure should hold one.
@@ -2620,6 +2652,9 @@ impl<'a> Emitter<'a> {
                         "td"
                     };
                     self.open(tag, cell_node);
+                    if self.options.reading_view {
+                        self.html.push_str(&reading::cell_attributes(cell));
+                    }
                     if boxed {
                         self.html.push_str(&format!(
                             " data-hwpx-cell=\"{},{},{},{}\"",
@@ -2652,6 +2687,9 @@ impl<'a> Emitter<'a> {
             }
         }
         self.close(if boxed { "div" } else { "table" });
+        if self.options.reading_view {
+            self.html.push_str("</div>");
+        }
         Ok(())
     }
 
@@ -3030,6 +3068,16 @@ fn render_direct_with(
     // A lenient run leaves out an object the renderer cannot draw: its
     // placeholder is a bare text label (nothing styles it), not a stand-in.
     let leaving_out;
+    let without_reading;
+    let options = if !options.logical_dom && options.reading_view {
+        without_reading = RenderOptions {
+            reading_view: false,
+            ..options.clone()
+        };
+        &without_reading
+    } else {
+        options
+    };
     let options = if lenient {
         leaving_out = RenderOptions {
             unsupported: UnsupportedPolicy::Skip,
@@ -3153,9 +3201,24 @@ fn render_direct_with(
     out.push_str(&escape_html_attribute(&csp));
     out.push_str("\">");
     out.push_str(bundle::PENDING_LINK);
+    if options.reading_view {
+        let width = layout.pages.first().map_or(210.0, |page| {
+            hwp_to_centi_mm(page.spec.width) as f64 / 100.0
+        });
+        out.push_str(&format!(
+            "<meta name=\"hwpx-paper-width\" content=\"{:.4}\"><script>",
+            width * 96.0 / 25.4
+        ));
+        out.push_str(reading::READING_SCRIPT);
+        out.push_str("</script>");
+    }
     if options.page_navigation {
         out.push_str("<script>");
-        out.push_str(NAVIGATION_SCRIPT);
+        out.push_str(if options.reading_view {
+            reading::NAVIGATION_SCRIPT
+        } else {
+            NAVIGATION_SCRIPT
+        });
         out.push_str("</script>");
     }
     out.push_str("</head><body>");
@@ -3171,12 +3234,20 @@ fn render_direct_with(
         }
         out.push_str("</div>");
     }
-    out.push_str("<main>");
+    out.push_str(if options.reading_view {
+        "<main class=\"hwpx-doc\">"
+    } else {
+        "<main>"
+    });
     out.push_str(&emitter.html);
     out.push_str("</main>");
     if options.adjust_letter_spacing {
         out.push_str("<script>");
-        out.push_str(html::SCRIPT_SOURCE);
+        out.push_str(if options.reading_view {
+            reading::CORRECTION_SCRIPT
+        } else {
+            html::SCRIPT_SOURCE
+        });
         out.push_str("</script>");
     }
     out.push_str("</body></html>");
@@ -3188,7 +3259,7 @@ fn render_direct_with(
             .iter()
             .any(|record| record.kind == kind)
     };
-    let css = format!(
+    let mut css = format!(
         "{}{}{}{}{}{}{}{}{}{}",
         super::css::base_css(),
         super::css::dynamic_css(&layout.char_styles, &layout.para_styles),
@@ -3217,6 +3288,9 @@ fn render_direct_with(
         },
         style_rules
     );
+    if options.reading_view {
+        css.push_str(&reading::css(document));
+    }
     Ok((
         bundle::assemble(prefix, resources, scripts, &out, &css),
         emitter.report,

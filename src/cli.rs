@@ -57,6 +57,14 @@ pub struct CommonArgs {
     pub no_logical_dom: bool,
     #[arg(
         long,
+        conflicts_with_all = ["no_reading_view", "no_logical_dom"],
+        help = "Include original and mobile reading views in one HTML document (opt-in pending validation)"
+    )]
+    pub reading_view: bool,
+    #[arg(long, conflicts_with = "reading_view", help = "Omit the reading view")]
+    pub no_reading_view: bool,
+    #[arg(
+        long,
         default_value_t = 64,
         help = "Maximum compressed input size in MiB"
     )]
@@ -166,6 +174,7 @@ impl CommonArgs {
             page_navigation: !self.no_page_navigation,
             infer_structure: !self.no_infer_structure,
             logical_dom: !self.no_logical_dom,
+            reading_view: self.reading_view && !self.no_reading_view,
             source_name: None,
         }
     }

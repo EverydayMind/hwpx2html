@@ -161,7 +161,7 @@
   async function convert() {
     if (!file || busy || reading) return;
     const selected = file, ownGeneration = ++generation;
-    const options = {paged: $('view').value === 'paged', infer: $('infer').checked, strict: $('strict').checked};
+    const options = {paged: $('view').value === 'paged', infer: $('infer').checked, strict: $('strict').checked, readingView: $('reading-view').checked};
     clearResult(); setBusy(true);
     const started = performance.now();
     let stage = '파일을 읽고 있습니다';
@@ -183,7 +183,7 @@
       };
       worker.onerror = event => { if (ownGeneration === generation) { stopWorker(); status('변환 작업을 시작하지 못했습니다. 브라우저의 로컬 파일 실행 정책을 확인해 주세요.', true, event.message); } };
       worker.onmessageerror = () => { if (ownGeneration === generation) { stopWorker(); status('변환 결과를 받지 못했습니다. 다시 변환해 주세요.', true); } };
-      const flags = (options.paged ? 1 : 0) | (options.infer ? 2 : 0) | (options.strict ? 4 : 0);
+      const flags = (options.paged ? 1 : 0) | (options.infer ? 2 : 0) | (options.strict ? 4 : 0) | (options.readingView ? 8 : 0);
       worker.postMessage({input, wasm, name: selected.name, flags}, [input, wasm]);
     } catch (error) { if (ownGeneration === generation) { stopWorker(); status('변환 준비 중 오류가 발생했습니다. 파일을 다시 선택해 주세요.', true, String(error)); } }
   }
@@ -223,7 +223,7 @@
   $('copy-info').addEventListener('click', () => {
     if (!result) return;
     const info = {tool: 'hwpx2html', version: result.metadata.summary.version, source: file.name, input_sha256: result.metadata.summary.input_sha256,
-      options: {resource_mode: 'embedded', page_navigation: result.options.paged, infer_structure: result.options.infer, strict: result.options.strict, adjust_letter_spacing: true},
+      options: {resource_mode: 'embedded', page_navigation: result.options.paged, infer_structure: result.options.infer, strict: result.options.strict, adjust_letter_spacing: true, reading_view: result.options.readingView},
       warning_count: result.metadata.diagnostics.length, unsupported_objects: result.metadata.summary.unsupported_objects, skipped_parts: result.metadata.summary.skipped_parts};
     copy(JSON.stringify(info, null, 2));
   });

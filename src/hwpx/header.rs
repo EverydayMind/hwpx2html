@@ -204,6 +204,10 @@ impl HeaderStyles {
                     id,
                     align,
                     hanging_indent,
+                    first_line_indent: margin
+                        .and_then(|node| child(node, "intent"))
+                        .map(|node| effective(attr_i64(node, "value", 0).max(0)))
+                        .unwrap_or(0),
                     margin_left: effective(value("left")),
                     margin_right: effective(value("right")),
                     margin_before: value("prev"),

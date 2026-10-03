@@ -54,6 +54,7 @@ fn output(name: &str, bytes: Vec<u8>, flags: u32) -> Output {
         render: RenderOptions {
             page_navigation: flags & 1 != 0,
             infer_structure: flags & 2 != 0,
+            reading_view: flags & 8 != 0,
             ..RenderOptions::default()
         },
         strict: flags & 4 != 0,

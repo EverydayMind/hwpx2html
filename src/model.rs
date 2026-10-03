@@ -55,6 +55,9 @@ pub struct ParaStyle {
     pub id: u32,
     pub align: String,
     pub hanging_indent: HwpUnit,
+    /// Positive source `hc:intent`, used by reading presentation only.
+    /// Original layout continues to use the stored line positions.
+    pub first_line_indent: HwpUnit,
     pub margin_left: HwpUnit,
     pub margin_right: HwpUnit,
     pub margin_before: HwpUnit,

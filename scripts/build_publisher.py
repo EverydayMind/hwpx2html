@@ -75,6 +75,9 @@ def build(cargo: Path | str | None = None) -> Path:
         app, worker,
         rust_script(ROOT / "src" / "render" / "html.rs", "SCRIPT_SOURCE"),
         rust_script(ROOT / "src" / "render" / "emit.rs", "NAVIGATION_SCRIPT"),
+        rust_script(ROOT / "src" / "render" / "reading.rs", "READING_SCRIPT"),
+        rust_script(ROOT / "src" / "render" / "reading.rs", "NAVIGATION_SCRIPT"),
+        rust_script(ROOT / "src" / "render" / "reading.rs", "CORRECTION_SCRIPT"),
     ]
     hashes = sorted({script_hash(script) for script in scripts})
     csp = (

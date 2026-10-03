@@ -6,6 +6,7 @@ mod logical;
 #[cfg(test)]
 mod observation;
 mod offsets;
+mod reading;
 mod semantic;
 mod units;
 
@@ -32,6 +33,9 @@ pub struct RenderOptions {
     /// Write one logical DOM over the pages (D35): a paragraph or table
     /// crossing pages is one element, its parts drawn on their pages.
     pub logical_dom: bool,
+    /// Include original/reading views over the same logical DOM (D38).
+    /// Opt-in until the reading-view regression gates have passed.
+    pub reading_view: bool,
     /// The input file name, used as the document title (D30).
     pub source_name: Option<String>,
 }
@@ -44,6 +48,7 @@ impl Default for RenderOptions {
             page_navigation: true,
             infer_structure: true,
             logical_dom: true,
+            reading_view: false,
             source_name: None,
         }
     }
