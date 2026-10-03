@@ -1,0 +1,103 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/hwpx2html/page-manifest.schema.json",
+  "title": "HWPX page manifest",
+  "type": "object",
+  "required": ["schema_version", "manifest_kind", "pages"],
+  "properties": {
+    "schema_version": { "type": "string" },
+    "manifest_kind": { "enum": ["canonical", "layout"] },
+    "input_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "html_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "css_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "canonical_provenance": { "type": "object" },
+    "pages": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/page" }
+    }
+  },
+  "$defs": {
+    "integerBox": {
+      "type": "object",
+      "required": ["x", "y", "width", "height"],
+      "properties": {
+        "x": { "type": "integer" },
+        "y": { "type": "integer" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" }
+      },
+      "additionalProperties": false
+    },
+    "cell": {
+      "type": "object",
+      "required": ["source_id", "source_xml_path", "row", "column", "row_span", "col_span", "box_units", "occurrence"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "source_xml_path": { "type": "string" },
+        "row": { "type": "integer", "minimum": 0 },
+        "column": { "type": "integer", "minimum": 0 },
+        "row_span": { "type": "integer", "minimum": 1 },
+        "col_span": { "type": "integer", "minimum": 1 },
+        "box_units": { "$ref": "#/$defs/integerBox" },
+        "repeated_header": { "type": "boolean" },
+        "repeated_from": { "type": ["string", "null"] },
+        "occurrence": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "table": {
+      "type": "object",
+      "required": ["source_id", "source_xml_path", "fragment_index", "stacking_order", "box_units", "cells"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "source_xml_path": { "type": "string" },
+        "fragment_index": { "type": "integer", "minimum": 0 },
+        "stacking_order": { "type": "integer" },
+        "box_units": { "$ref": "#/$defs/integerBox" },
+        "cells": { "type": "array", "items": { "$ref": "#/$defs/cell" } }
+      },
+      "additionalProperties": false
+    },
+    "object": {
+      "type": "object",
+      "required": ["id", "source_xml_path", "kind", "box_units", "stacking_order"],
+      "properties": {
+        "id": { "type": "string" },
+        "source_xml_path": { "type": "string" },
+        "kind": { "type": "string" },
+        "box_units": { "$ref": "#/$defs/integerBox" },
+        "stacking_order": { "type": "integer" },
+        "stacking_context": { "type": ["string", "null"] }
+      },
+      "additionalProperties": false
+    },
+    "page": {
+      "type": "object",
+      "required": ["index", "page_size", "content_box", "text_tokens", "text_token_hash", "visible_text_hash", "table_fragments", "pictures", "shapes", "unsupported_objects", "objects"],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "page_number": { "type": ["string", "null"] },
+        "page_size": { "$ref": "#/$defs/integerBox" },
+        "content_box": { "$ref": "#/$defs/integerBox" },
+        "text_tokens": { "type": "array", "items": { "$ref": "#/$defs/token" } },
+        "text_token_hash": { "type": "string" },
+        "visible_text_hash": { "type": "string" },
+        "table_fragments": { "type": "array", "items": { "$ref": "#/$defs/table" } },
+        "pictures": { "type": "array", "items": { "$ref": "#/$defs/object" } },
+        "shapes": { "type": "array", "items": { "$ref": "#/$defs/object" } },
+        "unsupported_objects": { "type": "array", "items": { "$ref": "#/$defs/object" } },
+        "objects": { "type": "array", "items": { "$ref": "#/$defs/object" } }
+      },
+      "additionalProperties": false
+    },
+    "token": {
+      "type": "object",
+      "required": ["kind", "text"],
+      "properties": {
+        "kind": { "enum": ["TEXT", "TAB", "LINE_BREAK", "NBSP", "FWSPACE", "CONTROL"] },
+        "text": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

@@ -1,0 +1,14 @@
+/target/
+/.idea/
+/AGENTS.md
+/PLAN.md
+/docs/
+/tests/
+/examples/
+/scripts/
+/샘플/
+/scratch/
+*.rs.bk
+*.html
+*.html.assets/
+__pycache__/
